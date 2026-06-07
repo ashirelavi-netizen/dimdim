@@ -124,6 +124,19 @@
             (setq str ""))))))
   res)
 
+;;; סינון רשימה לפי מילות חיפוש מופרדות ברווח (OR) — שיטה כללית
+(defun ddim:filter-by-words ( lst search-str / toks )
+  (setq toks (ddim:split-words search-str))
+  (if (not toks)
+    lst
+    (vl-remove-if-not
+      '(lambda (item)
+         (vl-some
+           '(lambda (tok)
+              (wcmatch (strcase item) (strcat "*" (strcase tok) "*")))
+           toks))
+      lst)))
+
 ;;; ============================================================
 ;;;  דיאלוג בחירת שכבה (sub-dialog)
 ;;; ============================================================
@@ -144,18 +157,7 @@
       (action_tile "filter"
         (strcat
           "(setq _ftxt (get_tile \"filter\"))"
-          "(setq _toks (ddim:split-words _ftxt))"
-          "(setq filt-lays"
-          "  (if (not _toks)"
-          "    lays"
-          "    (vl-remove-if-not"
-          "      (quote (lambda (_l)"
-          "        (vl-some"
-          "          (quote (lambda (_t)"
-          "            (wcmatch (strcase _l)"
-          "              (strcat \"*\" (strcase _t) \"*\"))))"
-          "          _toks)))"
-          "      lays)))"
+          "(setq filt-lays (ddim:filter-by-words lays _ftxt))"
           "(start_list \"pick_layer\")"
           "(if filt-lays (mapcar (quote add_list) filt-lays))"
           "(end_list)"
