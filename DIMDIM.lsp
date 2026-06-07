@@ -107,6 +107,23 @@
       (setq str (substr str (+ pos 2)))))
   res)
 
+(defun ddim:split-words ( str / pos res )
+  (setq res '())
+  (if (and str (> (strlen str) 0))
+    (progn
+      (setq str (vl-string-trim " " str))
+      (while (> (strlen str) 0)
+        (setq pos (vl-string-search " " str))
+        (if pos
+          (progn
+            (if (> pos 0)
+              (setq res (append res (list (substr str 1 pos)))))
+            (setq str (vl-string-trim " " (substr str (+ pos 2)))))
+          (progn
+            (setq res (append res (list str)))
+            (setq str ""))))))
+  res)
+
 ;;; ============================================================
 ;;;  דיאלוג בחירת שכבה (sub-dialog)
 ;;; ============================================================
@@ -127,13 +144,17 @@
       (action_tile "filter"
         (strcat
           "(setq _ftxt (get_tile \"filter\"))"
+          "(setq _toks (ddim:split-words _ftxt))"
           "(setq filt-lays"
-          "  (if (< (strlen _ftxt) 3)"
+          "  (if (not _toks)"
           "    lays"
           "    (vl-remove-if-not"
           "      (quote (lambda (_l)"
-          "        (wcmatch (strcase _l)"
-          "          (strcat \"*\" (strcase _ftxt) \"*\"))))"
+          "        (vl-some"
+          "          (quote (lambda (_t)"
+          "            (wcmatch (strcase _l)"
+          "              (strcat \"*\" (strcase _t) \"*\"))))"
+          "          _toks)))"
           "      lays)))"
           "(start_list \"pick_layer\")"
           "(if filt-lays (mapcar (quote add_list) filt-lays))"
