@@ -124,17 +124,21 @@
             (setq str ""))))))
   res)
 
+;;; בדיקה אם item מכיל לפחות אחת מהמילים ב-toks
+(defun ddim:word-match ( item toks / found )
+  (setq found nil)
+  (foreach tok toks
+    (if (wcmatch (strcase item) (strcat "*" (strcase tok) "*"))
+      (setq found t)))
+  found)
+
 ;;; סינון רשימה לפי מילות חיפוש מופרדות ברווח (OR) — שיטה כללית
 (defun ddim:filter-by-words ( lst search-str / toks )
   (setq toks (ddim:split-words search-str))
   (if (not toks)
     lst
     (vl-remove-if-not
-      '(lambda (item)
-         (vl-some
-           '(lambda (tok)
-              (wcmatch (strcase item) (strcat "*" (strcase tok) "*")))
-           toks))
+      '(lambda (item) (ddim:word-match item toks))
       lst)))
 
 ;;; ============================================================
