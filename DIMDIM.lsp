@@ -207,6 +207,8 @@
 
   (start_list "layer")  (mapcar 'add_list lays)   (end_list)
   (start_list "style")  (mapcar 'add_list styles) (end_list)
+  (set_tile "layer" (itoa (if (vl-position (nth 0 cur) lays)   (vl-position (nth 0 cur) lays)   0)))
+  (set_tile "style" (itoa (if (vl-position (nth 2 cur) styles) (vl-position (nth 2 cur) styles) 0)))
 
   (start_list "cross_layers")
   (if cross-list (mapcar 'add_list cross-list))
@@ -409,9 +411,10 @@
 ;;;  יצירת מידות לאורך XLINE
 ;;; ============================================================
 
-(defun ddim:create-dims ( pts dir dim-style dim-layer dim-pt / i p1 p2 dir-kw )
+(defun ddim:create-dims ( pts dir dim-style dim-layer dim-pt scale grp-id / i p1 p2 dir-kw new-ent )
   (setvar "CLAYER" dim-layer)
   (command "_.DIMSTYLE" "R" dim-style)
+  (setvar "DIMSCALE" scale)
   (setq dir-kw (if (= dir 'H) "Horizontal" "Vertical"))
   (setq i 0)
   (while (< i (1- (length pts)))
@@ -422,6 +425,9 @@
       (list (car p2) (cadr p2))
       dir-kw
       (list (car dim-pt) (cadr dim-pt)))
+    (setq new-ent (entlast))
+    (if (and new-ent grp-id)
+      (ddim:tag new-ent grp-id))
     (setq i (1+ i))))
 
 ;;; ============================================================
@@ -500,7 +506,7 @@
                     dim-layer base-dist dim-style scale multiplier
                     cross-list near-list actual-dist
                     cross-pts near-pts all-pts
-                    text-height dim-offset dim-pt )
+                    text-height dim-offset dim-pt grp-id )
   (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
     (regapp *DIMDIM-XAPP*))
 
@@ -580,7 +586,8 @@
        (setq dim-pt (list (+ pos dim-offset) (cadr pt1) 0.0)))
 
      ;; שלב 4: יצירת מידות
-     (ddim:create-dims all-pts dir dim-style dim-layer dim-pt)
+     (setq grp-id (ddim:newid))
+     (ddim:create-dims all-pts dir dim-style dim-layer dim-pt scale grp-id)
      (princ "\nהמידות נוצרו.")))
 
   (princ))
@@ -603,16 +610,55 @@
 ;;;  DIMDIMUNGROUP
 ;;; ============================================================
 
-(defun c:DIMDIMUNGROUP ( / ent-sel )
+(defun c:DIMDIMUNGROUP ( / ent-sel ed xd xd-list grp-id ss i cur-ent cur-ed cur-xd cur-xd-list all-ents action )
   (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
     (regapp *DIMDIM-XAPP*))
   (princ "\nבחר מידה: ")
   (setq ent-sel (car (entsel)))
   (if (not ent-sel)
     (progn (princ "\nבוטל.") (exit)))
-  (initget "Yes No")
-  (if (= (getkword "\nUngroup? [Yes/No] <No>: ") "Yes")
-    (princ "\nהפרדה הושלמה."))
+
+  ;; קריאת xdata מהמידה הנבחרת
+  (setq ed (entget ent-sel (list *DIMDIM-XAPP*)))
+  (setq xd (cadr (assoc -3 ed)))
+  (if (not xd)
+    (progn (princ "\nמידה זו אינה שייכת לקבוצת DIMDIM.") (exit)))
+  (setq xd-list (cdr xd))
+  (setq grp-id (if (>= (length xd-list) 2) (cdr (cadr xd-list)) nil))
+  (if (not grp-id)
+    (progn (princ "\nשגיאה בקריאת מזהה הקבוצה.") (exit)))
+
+  ;; מציאת כל המידות מאותה קבוצה
+  (setq all-ents '())
+  (setq ss (ssget "X" (list (cons -3 (list *DIMDIM-XAPP*)))))
+  (if ss
+    (progn
+      (setq i 0)
+      (while (< i (sslength ss))
+        (setq cur-ent (ssname ss i))
+        (setq cur-ed (entget cur-ent (list *DIMDIM-XAPP*)))
+        (setq cur-xd (cadr (assoc -3 cur-ed)))
+        (if cur-xd
+          (progn
+            (setq cur-xd-list (cdr cur-xd))
+            (if (and (>= (length cur-xd-list) 2)
+                     (= grp-id (cdr (cadr cur-xd-list))))
+              (setq all-ents (cons cur-ent all-ents)))))
+        (setq i (1+ i)))))
+
+  (princ (strcat "\nנמצאו " (itoa (length all-ents)) " מידות בקבוצה."))
+  (initget "Delete Ungroup")
+  (setq action (getkword "\n[Delete/Ungroup] <Ungroup>: "))
+  (if (not action) (setq action "Ungroup"))
+
+  (cond
+    ((= action "Delete")
+     (foreach e all-ents (entdel e))
+     (princ "\nהקבוצה נמחקה."))
+    (t
+     (foreach e all-ents
+       (entmod (append (entget e) (list (list -3 (list *DIMDIM-XAPP*))))))
+     (princ "\nהמידות הופרדו.")))
   (princ))
 
 (princ "\n=== DIMDIM נטען. פקודות: DIMDIM , DIMDIMSET , DIMDIMUNGROUP ===")
