@@ -431,7 +431,7 @@
     (setq i (1+ i))))
 
 ;;; ============================================================
-;;;  מיקום XLINE — זרימה חדשה עם grread + אישור
+;;;  מיקום XLINE — getpoint (תומך OSNAP) + לולאת אישור
 ;;; ============================================================
 
 (defun ddim:pick-xline ( layer / pt1 pt2 dx dy ed xline-ent orig-ortho confirmed ans )
