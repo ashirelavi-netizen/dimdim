@@ -128,7 +128,7 @@
         (strcat
           "(setq _ftxt (get_tile \"filter\"))"
           "(setq filt-lays"
-          "  (if (= _ftxt \"\")"
+          "  (if (< (strlen _ftxt) 3)"
           "    lays"
           "    (vl-remove-if-not"
           "      (quote (lambda (_l)"
