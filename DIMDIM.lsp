@@ -161,7 +161,10 @@
       (action_tile "filter"
         (strcat
           "(setq _ftxt (get_tile \"filter\"))"
-          "(setq filt-lays (ddim:filter-by-words lays _ftxt))"
+          "(setq filt-lays"
+          "  (if (>= (strlen _ftxt) 3)"
+          "    (ddim:filter-by-words lays _ftxt)"
+          "    lays))"
           "(start_list \"pick_layer\")"
           "(if filt-lays (mapcar (quote add_list) filt-lays))"
           "(end_list)"
@@ -461,12 +464,12 @@
 ;;;  מיקום XLINE — getpoint (תומך OSNAP) + לולאת אישור
 ;;; ============================================================
 
-(defun ddim:pick-xline ( layer / pt1 pt2 dx dy ed xline-ent orig-ortho confirmed ans )
+(defun ddim:pick-xline ( layer / pt1 pt2 dx dy ed xline-ent confirmed ans gr gr-code gr-pt )
   ;; קליק ראשון — עם OSNAP
   (setq pt1 (getpoint "\nבחר נקודת התחלה: "))
   (if (not pt1) (progn (princ "\nבוטל.") (exit)))
 
-  ;; יצירת XLINE עזר
+  ;; יצירת XLINE עזר (אופקי כברירת מחדל)
   (setq xline-ent
     (entmakex
       (list
@@ -480,33 +483,58 @@
   (if (not xline-ent)
     (progn (princ "\nשגיאה ביצירת XLINE.") (exit)))
 
-  ;; הפעלת ORTHOMODE — מבטיח אופקי/אנכי בלבד
-  (setq orig-ortho (getvar "ORTHOMODE"))
-  (setvar "ORTHOMODE" 1)
-
   (setq confirmed nil)
+  (setq dx 1.0)
+  (setq dy 0.0)
 
   (while (not confirmed)
-    ;; קליק שני — עם OSNAP (getpoint)
-    (setq pt2 (getpoint pt1 "\nבחר נקודת סיום: "))
-    (if (not pt2)
-      (progn
-        (setvar "ORTHOMODE" orig-ortho)
-        (entdel xline-ent)
-        (princ "\nבוטל.")
-        (exit)))
+    ;; לולאת grread — תצוגה חיה + OSNAP על קליק
+    (princ "\nבחר נקודת סיום: ")
+    (setq pt2 nil)
+    (while (not pt2)
+      (setq gr      (grread t 4 0))
+      (setq gr-code (car gr))
+      (setq gr-pt   (cadr gr))
+      (cond
+        ;; תנועת עכבר — עדכון XLINE בזמן אמת
+        ((and (= gr-code 5) (listp gr-pt))
+         (setq dx (abs (- (car  gr-pt) (car  pt1))))
+         (setq dy (abs (- (cadr gr-pt) (cadr pt1))))
+         (setq ed (entget xline-ent))
+         (if (>= dx dy)
+           (progn
+             (setq ed (subst (list 10 (car  pt1) (cadr gr-pt) 0.0) (assoc 10 ed) ed))
+             (setq ed (subst '(11 1.0 0.0 0.0)                     (assoc 11 ed) ed)))
+           (progn
+             (setq ed (subst (list 10 (car gr-pt) (cadr pt1) 0.0)  (assoc 10 ed) ed))
+             (setq ed (subst '(11 0.0 1.0 0.0)                     (assoc 11 ed) ed))))
+         (entmod ed)
+         (entupd xline-ent))
+        ;; קליק שמאלי — קובע נקודה עם OSNAP
+        ((= gr-code 3)
+         (setq pt2 gr-pt))
+        ;; ESC — ביטול
+        ((and (= gr-code 2) (= gr-pt 27))
+         (entdel xline-ent)
+         (princ "\nבוטל.")
+         (exit))
+        ;; קליק ימני — ביטול
+        ((= gr-code 25)
+         (entdel xline-ent)
+         (princ "\nבוטל.")
+         (exit))))
 
-    ;; עדכון XLINE למיקום הסופי
-    (setq dx (abs (- (car pt2) (car pt1))))
+    ;; עדכון סופי לנקודה שנבחרה
+    (setq dx (abs (- (car  pt2) (car  pt1))))
     (setq dy (abs (- (cadr pt2) (cadr pt1))))
     (setq ed (entget xline-ent))
     (if (>= dx dy)
       (progn
-        (setq ed (subst (list 10 (car pt1) (cadr pt2) 0.0) (assoc 10 ed) ed))
-        (setq ed (subst '(11 1.0 0.0 0.0) (assoc 11 ed) ed)))
+        (setq ed (subst (list 10 (car  pt1) (cadr pt2) 0.0) (assoc 10 ed) ed))
+        (setq ed (subst '(11 1.0 0.0 0.0)                   (assoc 11 ed) ed)))
       (progn
-        (setq ed (subst (list 10 (car pt2) (cadr pt1) 0.0) (assoc 10 ed) ed))
-        (setq ed (subst '(11 0.0 1.0 0.0) (assoc 11 ed) ed))))
+        (setq ed (subst (list 10 (car pt2) (cadr pt1)  0.0) (assoc 10 ed) ed))
+        (setq ed (subst '(11 0.0 1.0 0.0)                   (assoc 11 ed) ed))))
     (entmod ed)
     (entupd xline-ent)
 
@@ -516,8 +544,7 @@
     (if (or (= ans "Yes") (not ans))
       (setq confirmed t)))
 
-  ;; שחזור ORTHOMODE + מחיקת קו העזר
-  (setvar "ORTHOMODE" orig-ortho)
+  ;; מחיקת קו העזר
   (entdel xline-ent)
 
   ;; החזרה: כיוון / מיקום / pt1 / pt2
