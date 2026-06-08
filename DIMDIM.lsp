@@ -492,7 +492,7 @@
     (princ "\nבחר נקודת סיום: ")
     (setq pt2 nil)
     (while (not pt2)
-      (setq gr      (grread t 4 0))
+      (setq gr      (grread t))
       (setq gr-code (car gr))
       (setq gr-pt   (cadr gr))
       (cond
