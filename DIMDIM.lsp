@@ -438,6 +438,48 @@
   (if (or (not th) (= th 0.0)) 2.5 th))
 
 ;;; ============================================================
+;;;  לוגיקת Line — מחולצת לשימוש משותף ב-DIMDIM וב-QDIMS
+;;; ============================================================
+
+(defun ddim:run-line ( s /
+                       dim-layer base-dist dim-style scale multiplier
+                       cross-list near-list actual-dist
+                       xr dir pos pt1 pt2
+                       cross-pts near-pts all-pts
+                       text-height dim-offset dim-pt grp-id )
+  (setq dim-layer  (nth 0 s))
+  (setq base-dist  (atof (nth 1 s)))
+  (setq dim-style  (nth 2 s))
+  (setq scale      (atof (nth 3 s)))
+  (setq cross-list (ddim:str-to-list (nth 4 s)))
+  (setq near-list  (ddim:str-to-list (nth 5 s)))
+  (setq multiplier (if (nth 6 s) (atof (nth 6 s)) 3.0))
+  (setvar "DIMSCALE" scale)
+  (setq actual-dist (* base-dist (/ scale 50.0)))
+  (setq xr (ddim:pick-xline dim-layer))
+  (if (not xr) (exit))
+  (setq dir (car xr))
+  (setq pos (cadr xr))
+  (setq pt1 (caddr xr))
+  (setq pt2 (cadddr xr))
+  (setq cross-pts (ddim:find-cross-pts dir pos cross-list))
+  (setq near-pts  (ddim:find-near-pts  dir pos near-list actual-dist))
+  (setq cross-pts (ddim:filter-in-range cross-pts dir pt1 pt2))
+  (setq near-pts  (ddim:filter-in-range near-pts  dir pt1 pt2))
+  (setq all-pts (ddim:sort-dedup (append cross-pts near-pts) dir 0.1))
+  (if (< (length all-pts) 2)
+    (progn (princ "\nלא נמצאו מספיק נקודות ליצירת מידות.") (exit)))
+  (princ (strcat "\nנמצאו " (itoa (length all-pts)) " נקודות."))
+  (setq text-height (ddim:get-dimtxt dim-style))
+  (setq dim-offset  (* text-height scale multiplier))
+  (if (= dir 'H)
+    (setq dim-pt (list (car pt1) (+ pos dim-offset) 0.0))
+    (setq dim-pt (list (+ pos dim-offset) (cadr pt1) 0.0)))
+  (setq grp-id (ddim:newid))
+  (ddim:create-dims all-pts dir dim-style dim-layer dim-pt scale grp-id)
+  (princ "\nהמידות נוצרו."))
+
+;;; ============================================================
 ;;;  יצירת מידות לאורך XLINE
 ;;; ============================================================
 
@@ -556,11 +598,7 @@
 ;;;  הפקודה הראשית DIMDIM
 ;;; ============================================================
 
-(defun c:DIMDIM ( / s opt xr dir pos pt1 pt2
-                    dim-layer base-dist dim-style scale multiplier
-                    cross-list near-list actual-dist
-                    cross-pts near-pts all-pts
-                    text-height dim-offset dim-pt grp-id )
+(defun c:DIMDIM ( / s opt )
   (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
     (regapp *DIMDIM-XAPP*))
 
@@ -590,59 +628,7 @@
      (exit))
 
     ((= opt "Line")
-     ;; קריאת הגדרות
-     (setq dim-layer  (nth 0 s))
-     (setq base-dist  (atof (nth 1 s)))
-     (setq dim-style  (nth 2 s))
-     (setq scale      (atof (nth 3 s)))
-     (setq cross-list (ddim:str-to-list (nth 4 s)))
-     (setq near-list  (ddim:str-to-list (nth 5 s)))
-     (setq multiplier (if (nth 6 s) (atof (nth 6 s)) 3.0))
-
-     ;; קנה מידה — DIMSCALE
-     (setvar "DIMSCALE" scale)
-
-     ;; מרחק גילוי מתואם לקנה המידה
-     (setq actual-dist (* base-dist (/ scale 50.0)))
-
-     ;; שלב 1: מיקום XLINE
-     (setq xr  (ddim:pick-xline dim-layer))
-     (if (not xr) (exit))
-     (setq dir (car xr))
-     (setq pos (cadr xr))
-     (setq pt1 (caddr xr))
-     (setq pt2 (cadddr xr))
-
-     ;; שלב 2: מציאת נקודות
-     (setq cross-pts (ddim:find-cross-pts dir pos cross-list))
-     (setq near-pts  (ddim:find-near-pts  dir pos near-list actual-dist))
-
-     ;; סינון לתחום שני הקליקים
-     (setq cross-pts (ddim:filter-in-range cross-pts dir pt1 pt2))
-     (setq near-pts  (ddim:filter-in-range near-pts  dir pt1 pt2))
-
-     ;; מיון והסרת כפילויות
-     (setq all-pts (ddim:sort-dedup (append cross-pts near-pts) dir 0.1))
-
-     (if (< (length all-pts) 2)
-       (progn
-         (princ "\nלא נמצאו מספיק נקודות ליצירת מידות.")
-         (exit)))
-
-     (princ (strcat "\nנמצאו " (itoa (length all-pts)) " נקודות."))
-
-     ;; שלב 3: חישוב מיקום קו המידה אוטומטי
-     ;; אופקי — מעל ה-XLINE / אנכי — מימין ל-XLINE
-     (setq text-height (ddim:get-dimtxt dim-style))
-     (setq dim-offset  (* text-height scale multiplier))
-     (if (= dir 'H)
-       (setq dim-pt (list (car pt1) (+ pos dim-offset) 0.0))
-       (setq dim-pt (list (+ pos dim-offset) (cadr pt1) 0.0)))
-
-     ;; שלב 4: יצירת מידות
-     (setq grp-id (ddim:newid))
-     (ddim:create-dims all-pts dir dim-style dim-layer dim-pt scale grp-id)
-     (princ "\nהמידות נוצרו.")))
+     (ddim:run-line s)))
 
   (princ))
 
@@ -715,5 +701,108 @@
      (princ "\nהמידות הופרדו.")))
   (princ))
 
-(princ "\n=== DIMDIM נטען. פקודות: DIMDIM , DIMDIMSET , DIMDIMUNGROUP ===")
+;;; ============================================================
+;;;  DCL לתפריט המיני של QDIMS
+;;; ============================================================
+
+(defun ddim:write-menu-dcl ( / f path )
+  (setq path (vl-filename-mktemp "qdim" nil ".dcl"))
+  (setq f (open path "w"))
+  (write-line "qdims_menu : dialog {" f)
+  (write-line "  label = \"\";" f)
+  (write-line "  : button { key=\"btn_qdims\";    label=\"  QDims    \"; is_default=true; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_settings\"; label=\"  Settings  \"; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_ungroup\";  label=\"  Ungroup   \"; fixed_width=true; }" f)
+  (write-line "}" f)
+  (close f)
+  path)
+
+;;; ============================================================
+;;;  מיקום חלון המיני ליד מרכז חלון התוכנה
+;;; ============================================================
+
+(defun ddim:menu-screen-xy ( / app x y )
+  (setq x -1  y -1)
+  (vl-catch-all-apply
+    '(lambda ()
+       (setq app (vlax-get-acad-object))
+       (setq x (fix (+ (vlax-get-property app 'Left)
+                       (* (vlax-get-property app 'Width) 0.45))))
+       (setq y (fix (+ (vlax-get-property app 'Top)
+                       (* (vlax-get-property app 'Height) 0.45)))))
+    nil)
+  (list x y))
+
+;;; ============================================================
+;;;  תפריט מיני — הצגה ובחירה (מחזיר 1/2/3 או 0 לביטול)
+;;; ============================================================
+
+(defun ddim:show-menu ( / path dclid result xy x y )
+  (setq path (ddim:write-menu-dcl))
+  (setq dclid (load_dialog path))
+  (setq result 0)
+  (setq xy (ddim:menu-screen-xy))
+  (setq x (car xy))
+  (setq y (cadr xy))
+  (if (if (and (> x 0) (> y 0))
+        (new_dialog "qdims_menu" dclid "" x y)
+        (new_dialog "qdims_menu" dclid))
+    (progn
+      (action_tile "btn_qdims"    "(done_dialog 1)")
+      (action_tile "btn_settings" "(done_dialog 2)")
+      (action_tile "btn_ungroup"  "(done_dialog 3)")
+      (setq result (start_dialog)))
+    (progn (unload_dialog dclid) (vl-file-delete path) (exit)))
+  (unload_dialog dclid)
+  (vl-file-delete path)
+  result)
+
+;;; ============================================================
+;;;  QDIMS — כניסה דרך כפתור סרגל הכלים
+;;; ============================================================
+
+(defun c:QDIMS ( / s choice )
+  (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
+    (regapp *DIMDIM-XAPP*))
+  (setq s (ddim:get-settings))
+  (if (not s)
+    (progn
+      (princ "\nפעם ראשונה — פותח הגדרות.")
+      (c:DIMDIMSET))
+    (progn
+      (setq choice (ddim:show-menu))
+      (cond
+        ((= choice 1) (ddim:run-line s))
+        ((= choice 2) (c:DIMDIMSET))
+        ((= choice 3) (c:DIMDIMUNGROUP)))))
+  (princ))
+
+;;; ============================================================
+;;;  יצירת סרגל כלים עם כפתור QDims
+;;; ============================================================
+
+(defun ddim:create-toolbar ( / app mgs mg tbs found-tb err )
+  (setq err
+    (vl-catch-all-apply
+      '(lambda ()
+         (setq app (vlax-get-acad-object))
+         (setq mgs (vla-get-menugroups app))
+         (setq mg (vla-item mgs 0))
+         (setq tbs (vla-get-toolbars mg))
+         (setq found-tb nil)
+         (vlax-for tb tbs
+           (if (= (strcase (vla-get-name tb)) "DIMDIM")
+             (setq found-tb tb)))
+         (if (not found-tb)
+           (progn
+             (setq found-tb (vla-add tbs "DIMDIM"))
+             (vla-addtoolbarbutton found-tb 0 "QDims" "DIMDIM" "^C^CQDIMS ")
+             (vla-put-visible found-tb :vlax-true)
+             (princ "\nסרגל כלים DIMDIM נוצר."))))
+      nil))
+  (if (vl-catch-all-error-p err)
+    (princ "\nסרגל כלים: הוסף כפתור QDims ידנית (פקודה: QDIMS).")))
+
+(ddim:create-toolbar)
+(princ "\n=== DIMDIM נטען. פקודות: DIMDIM , DIMDIMSET , DIMDIMUNGROUP , QDIMS ===")
 (princ)
