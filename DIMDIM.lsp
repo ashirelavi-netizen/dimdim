@@ -13,7 +13,7 @@
 ;;; ============================================================
 ;;;  הגדרות: קריאה / כתיבה
 ;;;  אינדקסים: 0=שכבה  1=מרחק-בסיס(1:50)  2=סגנון  3=קנה-מידה
-;;;             4=cross-layers  5=near-layers  6=מכפיל-גובה-טקסט
+;;;             4=cross-layers  5=near-layers  6=מכפיל-גובה-טקסט  7=צבע-XLINE
 ;;; ============================================================
 
 (defun ddim:get-settings ( / dicts d xrec data res )
@@ -42,7 +42,7 @@
   lst)
 
 (defun ddim:default-settings ()
-  (list "0" "100.0" "0" "50" "" "" "3.0"))
+  (list "0" "100.0" "0" "50" "" "" "3.0" "7"))
 
 ;;; ============================================================
 ;;;  רשימת שכבות
@@ -207,6 +207,12 @@
   (write-line "      : edit_box { key=\"distance\"; edit_width=10; }" f)
   (write-line "    }" f)
   (write-line "  }" f)
+  (write-line "  : boxed_column { label = \"הגדרות XLINE\";" f)
+  (write-line "    : row {" f)
+  (write-line "      : edit_box { key=\"xline_color\"; label=\"צבע\"; edit_width=5; }" f)
+  (write-line "      : button { key=\"xline_color_pick\"; label=\" ... \"; fixed_width=true; width=5; }" f)
+  (write-line "    }" f)
+  (write-line "  }" f)
   (write-line "  ok_cancel;" f)
   (write-line "}" f)
   (write-line "layer_picker : dialog {" f)
@@ -222,7 +228,7 @@
 ;;;  פונקציית דיאלוג
 ;;; ============================================================
 
-(defun ddim:dlg ( cur / dclid path res result lays styles cross-list near-list )
+(defun ddim:dlg ( cur / dclid path res result lays styles cross-list near-list xline-color )
   (setq path (ddim:write-dcl))
   (setq lays   (ddim:layer-list))
   (setq styles (ddim:style-list))
@@ -250,6 +256,8 @@
   (set_tile "scale"      (nth 3 cur))
   (set_tile "distance"   (nth 1 cur))
   (set_tile "multiplier" (if (nth 6 cur) (nth 6 cur) "3.0"))
+  (setq xline-color (if (nth 7 cur) (atoi (nth 7 cur)) 7))
+  (set_tile "xline_color" (itoa xline-color))
 
   (action_tile "add_cross"
     (strcat
@@ -271,6 +279,11 @@
       "    (mapcar (quote add_list) near-list)"
       "    (end_list)))"))
 
+  (action_tile "xline_color_pick"
+    (strcat
+      "(setq _c (acad_colordlg xline-color))"
+      "(if _c (progn (setq xline-color _c) (set_tile \"xline_color\" (itoa _c))))"))
+
   (action_tile "accept"
     (strcat
       "(setq res (list"
@@ -280,7 +293,8 @@
       " (get_tile \"scale\")"
       " (ddim:list-to-str cross-list)"
       " (ddim:list-to-str near-list)"
-      " (get_tile \"multiplier\")))"
+      " (get_tile \"multiplier\")"
+      " (get_tile \"xline_color\")))"
       "(done_dialog 1)"))
 
   (setq result (start_dialog))
@@ -442,7 +456,7 @@
 ;;; ============================================================
 
 (defun ddim:run-line ( s /
-                       dim-layer base-dist dim-style scale multiplier
+                       dim-layer base-dist dim-style scale multiplier xline-color
                        cross-list near-list actual-dist
                        xr dir pos pt1 pt2
                        cross-pts near-pts all-pts
@@ -454,9 +468,10 @@
   (setq cross-list (ddim:str-to-list (nth 4 s)))
   (setq near-list  (ddim:str-to-list (nth 5 s)))
   (setq multiplier (if (nth 6 s) (atof (nth 6 s)) 3.0))
+  (setq xline-color (if (nth 7 s) (atoi (nth 7 s)) 7))
   (setvar "DIMSCALE" scale)
   (setq actual-dist (* base-dist (/ scale 50.0)))
-  (setq xr (ddim:pick-xline dim-layer))
+  (setq xr (ddim:pick-xline dim-layer xline-color))
   (if (not xr) (exit))
   (setq dir (car xr))
   (setq pos (cadr xr))
@@ -506,7 +521,16 @@
 ;;;  מיקום XLINE — getpoint (תומך OSNAP) + לולאת אישור
 ;;; ============================================================
 
-(defun ddim:pick-xline ( layer / pt1 pt2 dx dy ed xline-ent confirmed ans gr gr-code gr-pt )
+(defun ddim:pick-xline ( layer xline-color / pt1 pt2 dx dy ed xline-ent confirmed ans gr gr-code gr-pt *error* _snp )
+  ;; טיפול בשגיאות — מוחק XLINE גם בביטול / Ctrl+C
+  (setq *error*
+    '(lambda (msg)
+       (if xline-ent
+         (vl-catch-all-apply '(lambda () (entdel xline-ent)) nil))
+       (if (not (wcmatch msg "*break*,*cancel*,*exit*"))
+         (princ (strcat "\nError: " msg)))
+       (princ)))
+
   ;; קליק ראשון — עם OSNAP
   (setq pt1 (getpoint "\nבחר נקודת התחלה: "))
   (if (not pt1) (progn (princ "\nבוטל.") (exit)))
@@ -518,6 +542,7 @@
         '(0 . "XLINE")
         '(100 . "AcDbEntity")
         (cons 8 layer)
+        (cons 62 xline-color)
         '(100 . "AcDbXline")
         (list 10 (car pt1) (cadr pt1) 0.0)
         '(11 1.0 0.0 0.0))))
@@ -554,7 +579,8 @@
          (entupd xline-ent))
         ;; קליק שמאלי — קובע נקודה עם OSNAP
         ((= gr-code 3)
-         (setq pt2 gr-pt))
+         (setq _snp (vl-catch-all-apply '(lambda () (osnap gr-pt "END,INT,MID,PER,CEN,NEA")) nil))
+         (setq pt2 (if (and _snp (not (vl-catch-all-error-p _snp))) _snp gr-pt)))
         ;; ESC — ביטול
         ((and (= gr-code 2) (= gr-pt 27))
          (entdel xline-ent)
