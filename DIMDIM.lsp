@@ -192,43 +192,57 @@
   (write-line "  : boxed_column { label = \"הגדרות כלליות\";" f)
   (write-line "    : popup_list { key=\"layer\"; label=\"שכבה\"; }" f)
   (write-line "    : popup_list { key=\"style\"; label=\"סגנון מידה\"; }" f)
-  (write-line "    : edit_box { key=\"scale\"; label=\"קנה מידה\"; edit_width=10; }" f)
-  (write-line "    : edit_box { key=\"multiplier\"; label=\"מרחק קו המידה (x גובה טקסט)\"; edit_width=10; }" f)
+  (write-line "    : edit_box { key=\"scale\"; label=\"קנה מידה\"; edit_width=13; }" f)
   (write-line "  }" f)
   (write-line "  : boxed_column {" f)
   (write-line "    : boxed_column { label = \"צור קו מידה כשמידה חוצה קווים בשכבת:\";" f)
-  (write-line "      : list_box { key=\"cross_layers\"; height=4; allow_accept=false; }" f)
-  (write-line "      : button { key=\"add_cross\"; label=\"+ הוסף שכבה\"; }" f)
+  (write-line "      : list_box { key=\"cross_layers\"; height=6; allow_accept=false; }" f)
+  (write-line "      : row {" f)
+  (write-line "        : popup_list { key=\"cross_sel\"; }" f)
+  (write-line "        : button { key=\"add_cross\"; label=\" + \"; fixed_width=true; width=6; }" f)
+  (write-line "        : button { key=\"del_cross\"; label=\" - \"; fixed_width=true; width=6; }" f)
+  (write-line "      }" f)
   (write-line "    }" f)
   (write-line "    : boxed_column { label = \"אם קו המידה לא חוצה — צור קו מידה עבור קווים בשכבות:\";" f)
-  (write-line "      : list_box { key=\"near_layers\"; height=4; allow_accept=false; }" f)
-  (write-line "      : button { key=\"add_near\"; label=\"+ הוסף שכבה\"; }" f)
+  (write-line "      : list_box { key=\"near_layers\"; height=6; allow_accept=false; }" f)
+  (write-line "      : row {" f)
+  (write-line "        : popup_list { key=\"near_sel\"; }" f)
+  (write-line "        : button { key=\"add_near\"; label=\" + \"; fixed_width=true; width=6; }" f)
+  (write-line "        : button { key=\"del_near\"; label=\" - \"; fixed_width=true; width=6; }" f)
+  (write-line "      }" f)
   (write-line "      : text { label = \"המרחק המקסימלי לקו שאינו חוצה — מוגדר לפי קנה מידה 1:50:\"; }" f)
-  (write-line "      : edit_box { key=\"distance\"; edit_width=10; }" f)
+  (write-line "      : edit_box { key=\"distance\"; edit_width=13; }" f)
   (write-line "    }" f)
   (write-line "  }" f)
   (write-line "  : boxed_column { label = \"הגדרות XLINE\";" f)
   (write-line "    : row {" f)
-  (write-line "      : edit_box { key=\"xline_color\"; label=\"צבע\"; edit_width=5; }" f)
-  (write-line "      : button { key=\"xline_color_pick\"; label=\" ... \"; fixed_width=true; width=5; }" f)
+  (write-line "      : edit_box { key=\"xline_color\"; label=\"צבע\"; edit_width=7; }" f)
+  (write-line "      : button { key=\"xline_color_pick\"; label=\" ... \"; fixed_width=true; width=6; }" f)
   (write-line "    }" f)
   (write-line "  }" f)
-  (write-line "  ok_cancel;" f)
-  (write-line "}" f)
-  (write-line "layer_picker : dialog {" f)
-  (write-line "  label = \"בחר שכבה להוספה\";" f)
-  (write-line "  : edit_box { key=\"filter\"; label=\"סנן:\"; edit_width=20; }" f)
-  (write-line "  : list_box { key=\"pick_layer\"; height=8; allow_accept=true; }" f)
   (write-line "  ok_cancel;" f)
   (write-line "}" f)
   (close f)
   path)
 
+;;; מיקום חלון ההגדרות — בין מרכז המסך לפינה ימנית-תחתונה
+(defun ddim:dlg-screen-xy ( / app x y )
+  (setq x -1  y -1)
+  (vl-catch-all-apply
+    '(lambda ()
+       (setq app (vlax-get-acad-object))
+       (setq x (fix (+ (vlax-get-property app 'Left)
+                       (* (vlax-get-property app 'Width) 0.60))))
+       (setq y (fix (+ (vlax-get-property app 'Top)
+                       (* (vlax-get-property app 'Height) 0.55)))))
+    nil)
+  (list x y))
+
 ;;; ============================================================
 ;;;  פונקציית דיאלוג
 ;;; ============================================================
 
-(defun ddim:dlg ( cur / dclid path res result lays styles cross-list near-list xline-color )
+(defun ddim:dlg ( cur / dclid path res result lays styles cross-list near-list xline-color xy _x _y )
   (setq path (ddim:write-dcl))
   (setq lays   (ddim:layer-list))
   (setq styles (ddim:style-list))
@@ -238,7 +252,10 @@
   (setq near-list  (ddim:str-to-list (nth 5 cur)))
 
   (setq dclid (load_dialog path))
-  (if (not (new_dialog "ddim_dlg" dclid))
+  (setq xy (ddim:dlg-screen-xy)  _x (car xy)  _y (cadr xy))
+  (if (not (if (and (> _x 0) (> _y 0))
+        (new_dialog "ddim_dlg" dclid "" _x _y)
+        (new_dialog "ddim_dlg" dclid)))
     (progn (unload_dialog dclid) (vl-file-delete path) (exit)))
 
   (start_list "layer")  (mapcar 'add_list lays)   (end_list)
@@ -252,31 +269,54 @@
   (start_list "near_layers")
   (if near-list (mapcar 'add_list near-list))
   (end_list)
+  (start_list "cross_sel") (mapcar 'add_list lays) (end_list) (set_tile "cross_sel" "0")
+  (start_list "near_sel")  (mapcar 'add_list lays) (end_list) (set_tile "near_sel" "0")
 
-  (set_tile "scale"      (nth 3 cur))
-  (set_tile "distance"   (nth 1 cur))
-  (set_tile "multiplier" (if (nth 6 cur) (nth 6 cur) "3.0"))
+  (set_tile "scale"    (nth 3 cur))
+  (set_tile "distance" (nth 1 cur))
   (setq xline-color (if (nth 7 cur) (atoi (nth 7 cur)) 7))
   (set_tile "xline_color" (itoa xline-color))
 
   (action_tile "add_cross"
     (strcat
-      "(setq _picked (ddim:pick-layer path lays))"
-      "(if (and _picked (not (member _picked cross-list)))"
+      "(setq _lay (nth (atoi (get_tile \"cross_sel\")) lays))"
+      "(if (and _lay (not (member _lay cross-list)))"
       "  (progn"
-      "    (setq cross-list (append cross-list (list _picked)))"
+      "    (setq cross-list (append cross-list (list _lay)))"
       "    (start_list \"cross_layers\")"
       "    (mapcar (quote add_list) cross-list)"
       "    (end_list)))"))
 
+  (action_tile "del_cross"
+    (strcat
+      "(setq _di (atoi (get_tile \"cross_layers\")))"
+      "(if (and cross-list (>= _di 0) (< _di (length cross-list)))"
+      "  (progn"
+      "    (setq _i 0)"
+      "    (setq cross-list (vl-remove-if (quote (lambda (x) (= (setq _i (1+ _i)) (1+ _di)))) cross-list))"
+      "    (start_list \"cross_layers\")"
+      "    (if cross-list (mapcar (quote add_list) cross-list))"
+      "    (end_list)))"))
+
   (action_tile "add_near"
     (strcat
-      "(setq _picked (ddim:pick-layer path lays))"
-      "(if (and _picked (not (member _picked near-list)))"
+      "(setq _lay (nth (atoi (get_tile \"near_sel\")) lays))"
+      "(if (and _lay (not (member _lay near-list)))"
       "  (progn"
-      "    (setq near-list (append near-list (list _picked)))"
+      "    (setq near-list (append near-list (list _lay)))"
       "    (start_list \"near_layers\")"
       "    (mapcar (quote add_list) near-list)"
+      "    (end_list)))"))
+
+  (action_tile "del_near"
+    (strcat
+      "(setq _di (atoi (get_tile \"near_layers\")))"
+      "(if (and near-list (>= _di 0) (< _di (length near-list)))"
+      "  (progn"
+      "    (setq _i 0)"
+      "    (setq near-list (vl-remove-if (quote (lambda (x) (= (setq _i (1+ _i)) (1+ _di)))) near-list))"
+      "    (start_list \"near_layers\")"
+      "    (if near-list (mapcar (quote add_list) near-list))"
       "    (end_list)))"))
 
   (action_tile "xline_color_pick"
@@ -293,7 +333,7 @@
       " (get_tile \"scale\")"
       " (ddim:list-to-str cross-list)"
       " (ddim:list-to-str near-list)"
-      " (get_tile \"multiplier\")"
+      " \"3.0\""
       " (get_tile \"xline_color\")))"
       "(done_dialog 1)"))
 
@@ -383,7 +423,7 @@
 ;;;  מחזיר: נקודות ה-endpoint האמיתיות של האובייקטים
 ;;; ============================================================
 
-(defun ddim:find-near-pts ( dir pos layers dist / ss i ent ed cpt d pts )
+(defun ddim:find-near-pts ( dir pos layers dist / ss i ent ed p1 p2 pts )
   (setq pts '())
   (foreach lay layers
     (setq ss (ssget "X" (list (cons 8 lay))))
@@ -394,13 +434,14 @@
           (setq ent (ssname ss i))
           (setq ed (entget ent))
           (foreach seg (ddim:entity-segs ed)
-            (if (not (ddim:seg-xline-isect (car seg) (cadr seg) dir pos))
+            (setq p1 (car seg))
+            (setq p2 (cadr seg))
+            (if (not (ddim:seg-xline-isect p1 p2 dir pos))
               (progn
-                (setq cpt (ddim:closest-on-seg (car seg) (cadr seg) dir pos))
-                (setq d   (ddim:dist-to-xline cpt dir pos))
-                (if (<= d dist)
-                  ;; מחזיר את ה-endpoint האמיתי (לא הטלה)
-                  (setq pts (cons (list (car cpt) (cadr cpt) 0.0) pts))))))
+                (if (<= (ddim:dist-to-xline p1 dir pos) dist)
+                  (setq pts (cons (list (car p1) (cadr p1) 0.0) pts)))
+                (if (<= (ddim:dist-to-xline p2 dir pos) dist)
+                  (setq pts (cons (list (car p2) (cadr p2) 0.0) pts))))))
           (setq i (1+ i))))))
   pts)
 
@@ -456,18 +497,17 @@
 ;;; ============================================================
 
 (defun ddim:run-line ( s /
-                       dim-layer base-dist dim-style scale multiplier xline-color
+                       dim-layer base-dist dim-style scale xline-color
                        cross-list near-list actual-dist
                        xr dir pos pt1 pt2
                        cross-pts near-pts all-pts
-                       text-height dim-offset dim-pt grp-id )
+                       dim-pt grp-id )
   (setq dim-layer  (nth 0 s))
   (setq base-dist  (atof (nth 1 s)))
   (setq dim-style  (nth 2 s))
   (setq scale      (atof (nth 3 s)))
   (setq cross-list (ddim:str-to-list (nth 4 s)))
   (setq near-list  (ddim:str-to-list (nth 5 s)))
-  (setq multiplier (if (nth 6 s) (atof (nth 6 s)) 3.0))
   (setq xline-color (if (nth 7 s) (atoi (nth 7 s)) 7))
   (setvar "DIMSCALE" scale)
   (setq actual-dist (* base-dist (/ scale 50.0)))
@@ -485,11 +525,9 @@
   (if (< (length all-pts) 2)
     (progn (princ "\nלא נמצאו מספיק נקודות ליצירת מידות.") (exit)))
   (princ (strcat "\nנמצאו " (itoa (length all-pts)) " נקודות."))
-  (setq text-height (ddim:get-dimtxt dim-style))
-  (setq dim-offset  (* text-height scale multiplier))
   (if (= dir 'H)
-    (setq dim-pt (list (car pt1) (+ pos dim-offset) 0.0))
-    (setq dim-pt (list (+ pos dim-offset) (cadr pt1) 0.0)))
+    (setq dim-pt (list (car pt1) pos 0.0))
+    (setq dim-pt (list pos (cadr pt1) 0.0)))
   (setq grp-id (ddim:newid))
   (ddim:create-dims all-pts dir dim-style dim-layer dim-pt scale grp-id)
   (princ "\nהמידות נוצרו."))
@@ -535,7 +573,7 @@
   (setq pt1 (getpoint "\nבחר נקודת התחלה: "))
   (if (not pt1) (progn (princ "\nבוטל.") (exit)))
 
-  ;; יצירת XLINE עזר (אופקי כברירת מחדל)
+  ;; יצירת XLINE עזר
   (setq xline-ent
     (entmakex
       (list
@@ -550,12 +588,10 @@
   (if (not xline-ent)
     (progn (princ "\nשגיאה ביצירת XLINE.") (exit)))
 
-  (setq confirmed nil)
-  (setq dx 1.0)
-  (setq dy 0.0)
+  (setq confirmed nil  dx 1.0  dy 0.0)
 
   (while (not confirmed)
-    ;; לולאת grread — תצוגה חיה + OSNAP על קליק
+    ;; לולאת grread — תצוגה חיה של XLINE + snap על קליק
     (princ "\nבחר נקודת סיום: ")
     (setq pt2 nil)
     (while (not pt2)
@@ -563,7 +599,6 @@
       (setq gr-code (car gr))
       (setq gr-pt   (cadr gr))
       (cond
-        ;; תנועת עכבר — עדכון XLINE בזמן אמת
         ((and (= gr-code 5) (listp gr-pt))
          (setq dx (abs (- (car  gr-pt) (car  pt1))))
          (setq dy (abs (- (cadr gr-pt) (cadr pt1))))
@@ -577,22 +612,17 @@
              (setq ed (subst '(11 0.0 1.0 0.0)                     (assoc 11 ed) ed))))
          (entmod ed)
          (entupd xline-ent))
-        ;; קליק שמאלי — קובע נקודה עם OSNAP
         ((= gr-code 3)
-         (setq _snp (vl-catch-all-apply '(lambda () (osnap gr-pt "END,INT,MID,PER,CEN,NEA")) nil))
+         (setq _snp (vl-catch-all-apply '(lambda () (osnap gr-pt "END,MID,CEN,NOD,QUA,INT,INS,PER,TAN,NEA")) nil))
          (setq pt2 (if (and _snp (not (vl-catch-all-error-p _snp))) _snp gr-pt)))
-        ;; ESC — ביטול
         ((and (= gr-code 2) (= gr-pt 27))
-         (entdel xline-ent)
-         (princ "\nבוטל.")
-         (exit))
-        ;; קליק ימני — ביטול
+         (entdel xline-ent) (setq xline-ent nil)
+         (princ "\nבוטל.") (exit))
         ((= gr-code 25)
-         (entdel xline-ent)
-         (princ "\nבוטל.")
-         (exit))))
+         (entdel xline-ent) (setq xline-ent nil)
+         (princ "\nבוטל.") (exit))))
 
-    ;; עדכון סופי לנקודה שנבחרה
+    ;; עדכון XLINE לנקודה שנבחרה
     (setq dx (abs (- (car  pt2) (car  pt1))))
     (setq dy (abs (- (cadr pt2) (cadr pt1))))
     (setq ed (entget xline-ent))
@@ -601,12 +631,12 @@
         (setq ed (subst (list 10 (car  pt1) (cadr pt2) 0.0) (assoc 10 ed) ed))
         (setq ed (subst '(11 1.0 0.0 0.0)                   (assoc 11 ed) ed)))
       (progn
-        (setq ed (subst (list 10 (car pt2) (cadr pt1)  0.0) (assoc 10 ed) ed))
+        (setq ed (subst (list 10 (car pt2) (cadr pt1) 0.0)  (assoc 10 ed) ed))
         (setq ed (subst '(11 0.0 1.0 0.0)                   (assoc 11 ed) ed))))
     (entmod ed)
     (entupd xline-ent)
 
-    ;; שאלת אישור
+    ;; שאלת אישור — אם לא, חוזר לבחירת נקודת סיום בלבד
     (initget "Yes No")
     (setq ans (getkword "\nהאם המיקום מתאים? [Yes/No]: "))
     (if (or (= ans "Yes") (not ans))
@@ -614,6 +644,7 @@
 
   ;; מחיקת קו העזר
   (entdel xline-ent)
+  (setq xline-ent nil)
 
   ;; החזרה: כיוון / מיקום / pt1 / pt2
   (if (>= dx dy)
@@ -624,7 +655,7 @@
 ;;;  הפקודה הראשית DIMDIM
 ;;; ============================================================
 
-(defun c:DIMDIM ( / s opt )
+(defun c:DIMDIM ( / s choice )
   (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
     (regapp *DIMDIM-XAPP*))
 
@@ -638,23 +669,15 @@
       (princ "\nהגדרות נשמרו. הפעל DIMDIM שוב לצייר מידות.")
       (exit)))
 
-  (initget "Line Ungroup Settings")
-  (setq opt (getkword "\n[Line/Ungroup/Settings] <Line>: "))
-  (if (not opt) (setq opt "Line"))
-
+  (setq choice (ddim:show-menu))
   (cond
-    ((= opt "Settings")
+    ((= choice 0) (princ "\nבוטל."))
+    ((= choice 1) (ddim:run-line s))
+    ((= choice 2)
      (setq s (ddim:dlg s))
      (if s (ddim:put-settings s))
-     (princ "\nההגדרות נשמרו.")
-     (exit))
-
-    ((= opt "Ungroup")
-     (princ "\nבחר מידה להפרדה.")
-     (exit))
-
-    ((= opt "Line")
-     (ddim:run-line s)))
+     (princ "\nההגדרות נשמרו."))
+    ((= choice 3) (c:DIMDIMUNGROUP)))
 
   (princ))
 
@@ -739,6 +762,7 @@
   (write-line "  : button { key=\"btn_qdims\";    label=\"  QDims    \"; is_default=true; fixed_width=true; }" f)
   (write-line "  : button { key=\"btn_settings\"; label=\"  Settings  \"; fixed_width=true; }" f)
   (write-line "  : button { key=\"btn_ungroup\";  label=\"  Ungroup   \"; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_cancel\";   label=\"  Cancel   \"; is_cancel=true;  fixed_width=true; }" f)
   (write-line "}" f)
   (close f)
   path)
@@ -777,6 +801,8 @@
       (action_tile "btn_qdims"    "(done_dialog 1)")
       (action_tile "btn_settings" "(done_dialog 2)")
       (action_tile "btn_ungroup"  "(done_dialog 3)")
+      (action_tile "btn_cancel"   "(done_dialog 0)")
+      (action_tile "cancel"       "(done_dialog 0)")
       (setq result (start_dialog)))
     (progn (unload_dialog dclid) (vl-file-delete path) (exit)))
   (unload_dialog dclid)
@@ -798,6 +824,7 @@
     (progn
       (setq choice (ddim:show-menu))
       (cond
+        ((= choice 0) (princ "\nבוטל."))
         ((= choice 1) (ddim:run-line s))
         ((= choice 2) (c:DIMDIMSET))
         ((= choice 3) (c:DIMDIMUNGROUP)))))
