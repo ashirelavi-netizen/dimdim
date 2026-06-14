@@ -469,6 +469,17 @@
   segs)
 
 ;;; ============================================================
+;;;  בדיקת ניצבות סגמנט לכיוון XLINE
+;;; ============================================================
+
+(defun ddim:seg-is-perp ( p1 p2 dir / dx dy )
+  (setq dx (abs (- (car  p2) (car  p1))))
+  (setq dy (abs (- (cadr p2) (cadr p1))))
+  (if (= dir 'H)
+    (< dx 1e-6)
+    (< dy 1e-6)))
+
+;;; ============================================================
 ;;;  מציאת נקודות חיתוך — שכבות חוצות
 ;;;  מחזיר: נקודות ממוקמות על ה-XLINE
 ;;; ============================================================
@@ -484,8 +495,10 @@
           (setq ent (ssname ss i))
           (setq ed (entget ent))
           (foreach seg (ddim:entity-segs ed)
-            (setq ipt (ddim:seg-xline-isect (car seg) (cadr seg) dir pos))
-            (if ipt (setq pts (cons ipt pts))))
+            (if (ddim:seg-is-perp (car seg) (cadr seg) dir)
+              (progn
+                (setq ipt (ddim:seg-xline-isect (car seg) (cadr seg) dir pos))
+                (if ipt (setq pts (cons ipt pts))))))
           (setq i (1+ i))))))
   pts)
 
