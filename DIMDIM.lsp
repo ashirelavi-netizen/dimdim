@@ -7,8 +7,6 @@
 
 ;;; ----- קבועים -----
 (setq *DIMDIM-DICT*  "DIMDIM_SETTINGS")
-(setq *DIMDIM-XAPP*  "DIMDIM_PAIR")
-(setq *DIMDIM-VER*   "1")
 
 ;;; ============================================================
 ;;;  הגדרות: קריאה / כתיבה
@@ -68,17 +66,6 @@
     (setq name (tblnext "DIMSTYLE" nil)))
   (acad_strlsort l))
 
-;;; ============================================================
-;;;  טגון XData
-;;; ============================================================
-
-(defun ddim:tag ( ent grp-id / ed )
-  (entmod
-    (append (entget ent)
-      (list (list -3
-        (list *DIMDIM-XAPP*
-          (cons 1000 *DIMDIM-VER*)
-          (cons 1000 grp-id)))))))
 
 ;;; ============================================================
 ;;;  מזהה ייחודי
@@ -88,6 +75,90 @@
 (defun ddim:newid ()
   (setq *DIMDIM-COUNTER* (1+ *DIMDIM-COUNTER*))
   (strcat (rtos (getvar "MILLISECS") 2 0) "-" (itoa *DIMDIM-COUNTER*)))
+
+;;; ============================================================
+;;;  יצירת גרופ
+;;; ============================================================
+
+(defun ddim:make-group ( ss grp-name / doc grps grp n objs i err )
+  (setq err
+    (vl-catch-all-apply
+      '(lambda ()
+         (setq doc (vla-get-activedocument (vlax-get-acad-object)))
+         (setq grps (vla-get-groups doc))
+         (setq grp (vla-add grps grp-name))
+         (setq n (sslength ss))
+         (setq objs (vlax-make-safearray vlax-vbObject (cons 0 (1- n))))
+         (setq i 0)
+         (while (< i n)
+           (vlax-safearray-put-element objs i
+             (vlax-ename->vla-object (ssname ss i)))
+           (setq i (1+ i)))
+         (vla-appenditems grp objs))
+      nil))
+  (if (vl-catch-all-error-p err)
+    (princ (strcat "\nשגיאה ביצירת גרופ: " (vl-catch-all-error-message err)))))
+
+;;; ============================================================
+;;;  מציאת גרופ של ישות
+;;; ============================================================
+
+(defun ddim:find-group ( ent / doc grps found-grp ent-handle member-ent )
+  (setq found-grp nil)
+  (setq ent-handle (cdr (assoc 5 (entget ent))))
+  (vl-catch-all-apply
+    '(lambda ()
+       (setq doc (vla-get-activedocument (vlax-get-acad-object)))
+       (setq grps (vla-get-groups doc))
+       (vlax-for grp grps
+         (if (and (not found-grp)
+                  (= (substr (vla-get-name grp) 1 5) "DDIM-"))
+           (vlax-for member grp
+             (if (and (not found-grp)
+                      (vl-catch-all-apply
+                        '(lambda ()
+                           (setq member-ent (vlax-vla-object->ename member))
+                           (= ent-handle (cdr (assoc 5 (entget member-ent)))))
+                        nil))
+               (setq found-grp grp))))))
+    nil)
+  found-grp)
+
+;;; ============================================================
+;;;  DCL פופ-אפ קטן ליד הסמן
+;;; ============================================================
+
+(defun ddim:write-popup-dcl ( / f path )
+  (setq path (vl-filename-mktemp "dpop" nil ".dcl"))
+  (setq f (open path "w"))
+  (write-line "dim_popup : dialog {" f)
+  (write-line "  label = \"\";" f)
+  (write-line "  : button { key=\"btn_ungroup\"; label=\"  Ungroup  \"; is_default=true; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_delete\";  label=\"  Delete   \"; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_cancel\";  label=\"  Cancel   \"; is_cancel=true;  fixed_width=true; }" f)
+  (write-line "}" f)
+  (close f)
+  path)
+
+(defun ddim:show-popup ( cpos / path dclid result x y )
+  (setq path (ddim:write-popup-dcl))
+  (setq dclid (load_dialog path))
+  (setq result 0)
+  (setq x (if (and cpos (car  cpos)) (fix (car  cpos)) -1))
+  (setq y (if (and cpos (cadr cpos)) (fix (cadr cpos)) -1))
+  (if (if (and (> x 0) (> y 0))
+        (new_dialog "dim_popup" dclid "" x y)
+        (new_dialog "dim_popup" dclid))
+    (progn
+      (action_tile "btn_ungroup" "(done_dialog 1)")
+      (action_tile "btn_delete"  "(done_dialog 2)")
+      (action_tile "btn_cancel"  "(done_dialog 0)")
+      (action_tile "cancel"      "(done_dialog 0)")
+      (setq result (start_dialog)))
+    (progn (unload_dialog dclid) (vl-file-delete path) (exit)))
+  (unload_dialog dclid)
+  (vl-file-delete path)
+  result)
 
 ;;; ============================================================
 ;;;  פיצול / איחוד רשימת שכבות
@@ -528,7 +599,7 @@
   (if (= dir 'H)
     (setq dim-pt (list (car pt1) pos 0.0))
     (setq dim-pt (list pos (cadr pt1) 0.0)))
-  (setq grp-id (ddim:newid))
+  (setq grp-id (strcat "DDIM-" (ddim:newid)))
   (ddim:create-dims all-pts dir dim-style dim-layer dim-pt scale grp-id)
   (princ "\nהמידות נוצרו."))
 
@@ -536,11 +607,12 @@
 ;;;  יצירת מידות לאורך XLINE
 ;;; ============================================================
 
-(defun ddim:create-dims ( pts dir dim-style dim-layer dim-pt scale grp-id / i p1 p2 dir-kw new-ent )
+(defun ddim:create-dims ( pts dir dim-style dim-layer dim-pt scale grp-id / i p1 p2 dir-kw new-ent ss )
   (setvar "CLAYER" dim-layer)
   (command "_.DIMSTYLE" "R" dim-style)
   (setvar "DIMSCALE" scale)
   (setq dir-kw (if (= dir 'H) "Horizontal" "Vertical"))
+  (setq ss (ssadd))
   (setq i 0)
   (while (< i (1- (length pts)))
     (setq p1 (nth i pts))
@@ -551,9 +623,10 @@
       dir-kw
       (list (car dim-pt) (cadr dim-pt)))
     (setq new-ent (entlast))
-    (if (and new-ent grp-id)
-      (ddim:tag new-ent grp-id))
-    (setq i (1+ i))))
+    (if new-ent (ssadd new-ent ss))
+    (setq i (1+ i)))
+  (if (> (sslength ss) 0)
+    (ddim:make-group ss grp-id)))
 
 ;;; ============================================================
 ;;;  מיקום XLINE — getpoint (תומך OSNAP) + לולאת אישור
@@ -656,8 +729,6 @@
 ;;; ============================================================
 
 (defun c:DIMDIM ( / s choice )
-  (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
-    (regapp *DIMDIM-XAPP*))
 
   (setq s (ddim:get-settings))
   (if (not s)
@@ -686,8 +757,6 @@
 ;;; ============================================================
 
 (defun c:DIMDIMSET ( / s )
-  (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
-    (regapp *DIMDIM-XAPP*))
   (setq s (ddim:get-settings))
   (if (not s) (setq s (ddim:default-settings)))
   (setq s (ddim:dlg s))
@@ -699,55 +768,29 @@
 ;;;  DIMDIMUNGROUP
 ;;; ============================================================
 
-(defun c:DIMDIMUNGROUP ( / ent-sel ed xd xd-list grp-id ss i cur-ent cur-ed cur-xd cur-xd-list all-ents action )
-  (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
-    (regapp *DIMDIM-XAPP*))
-  (princ "\nבחר מידה: ")
-  (setq ent-sel (car (entsel)))
-  (if (not ent-sel)
+(defun c:DIMDIMUNGROUP ( / sel ent cpos grp members choice )
+  (setq sel (entsel "\nבחר קו מידה: "))
+  (if (not sel)
     (progn (princ "\nבוטל.") (exit)))
-
-  ;; קריאת xdata מהמידה הנבחרת
-  (setq ed (entget ent-sel (list *DIMDIM-XAPP*)))
-  (setq xd (cadr (assoc -3 ed)))
-  (if (not xd)
-    (progn (princ "\nמידה זו אינה שייכת לקבוצת DIMDIM.") (exit)))
-  (setq xd-list (cdr xd))
-  (setq grp-id (if (>= (length xd-list) 2) (cdr (cadr xd-list)) nil))
-  (if (not grp-id)
-    (progn (princ "\nשגיאה בקריאת מזהה הקבוצה.") (exit)))
-
-  ;; מציאת כל המידות מאותה קבוצה
-  (setq all-ents '())
-  (setq ss (ssget "X" (list (cons -3 (list *DIMDIM-XAPP*)))))
-  (if ss
-    (progn
-      (setq i 0)
-      (while (< i (sslength ss))
-        (setq cur-ent (ssname ss i))
-        (setq cur-ed (entget cur-ent (list *DIMDIM-XAPP*)))
-        (setq cur-xd (cadr (assoc -3 cur-ed)))
-        (if cur-xd
-          (progn
-            (setq cur-xd-list (cdr cur-xd))
-            (if (and (>= (length cur-xd-list) 2)
-                     (= grp-id (cdr (cadr cur-xd-list))))
-              (setq all-ents (cons cur-ent all-ents)))))
-        (setq i (1+ i)))))
-
-  (princ (strcat "\nנמצאו " (itoa (length all-ents)) " מידות בקבוצה."))
-  (initget "Delete Ungroup")
-  (setq action (getkword "\n[Delete/Ungroup] <Ungroup>: "))
-  (if (not action) (setq action "Ungroup"))
-
+  (setq ent  (car sel))
+  (setq cpos (getvar "CURSORPOS"))
+  (setq grp  (ddim:find-group ent))
+  (if (not grp)
+    (progn (princ "\nהישות אינה שייכת לגרופ DIMDIM.") (exit)))
+  (setq choice (ddim:show-popup cpos))
   (cond
-    ((= action "Delete")
-     (foreach e all-ents (entdel e))
-     (princ "\nהקבוצה נמחקה."))
-    (t
-     (foreach e all-ents
-       (entmod (append (entget e) (list (list -3 (list *DIMDIM-XAPP*))))))
-     (princ "\nהמידות הופרדו.")))
+    ((= choice 0) (princ "\nבוטל."))
+    ((= choice 1)
+     (vl-catch-all-apply '(lambda () (vla-delete grp)) nil)
+     (princ "\nהגרופ שוחרר."))
+    ((= choice 2)
+     (setq members '())
+     (vlax-for member grp
+       (setq members (cons (vlax-vla-object->ename member) members)))
+     (vl-catch-all-apply '(lambda () (vla-delete grp)) nil)
+     (foreach e members
+       (vl-catch-all-apply '(lambda () (entdel e)) nil))
+     (princ "\nהגרופ נמחק.")))
   (princ))
 
 ;;; ============================================================
@@ -761,7 +804,7 @@
   (write-line "  label = \"\";" f)
   (write-line "  : button { key=\"btn_qdims\";    label=\"  QDims    \"; is_default=true; fixed_width=true; }" f)
   (write-line "  : button { key=\"btn_settings\"; label=\"  Settings  \"; fixed_width=true; }" f)
-  (write-line "  : button { key=\"btn_ungroup\";  label=\"  Ungroup   \"; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_ungroup\";  label=\"  Ungroup/Delete  \"; fixed_width=true; }" f)
   (write-line "  : button { key=\"btn_cancel\";   label=\"  Cancel   \"; is_cancel=true;  fixed_width=true; }" f)
   (write-line "}" f)
   (close f)
@@ -814,8 +857,6 @@
 ;;; ============================================================
 
 (defun c:QDIMS ( / s choice )
-  (if (not (tblsearch "APPID" *DIMDIM-XAPP*))
-    (regapp *DIMDIM-XAPP*))
   (setq s (ddim:get-settings))
   (if (not s)
     (progn
