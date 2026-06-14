@@ -157,7 +157,7 @@
 | `ddim:find-cross-pts dir pos layers` | מוצאת נקודות חיתוך על ה-XLINE מהשכבות החוצות — **רק סגמנטים ניצבים** |
 | `ddim:find-near-pts dir pos layers dist` | מוצאת נקודות קצה אמיתיות של סגמנטים שלא חוצים את ה-XLINE אך נמצאים בטווח dist |
 | `ddim:filter-in-range pts dir pt1 pt2` | מסננת נקודות לתחום בין שני הקליקים |
-| `ddim:sort-dedup pts dir tol` | ממיינת נקודות ומסירה כפילויות בסבלנות tol |
+| `ddim:sort-dedup pts dir pos tol` | ממיינת נקודות ומסירה כפילויות בסבלנות tol. בכפילויות — שומרת הנקודה הקרובה ביותר ל-XLINE |
 
 ### XLINE ומידות
 | פונקציה | תיאור |
@@ -202,6 +202,8 @@
 | 6 | xdata הוחלף ב-GROUP אמיתי | מימוש `ddim:make-group` / `ddim:find-group` עם VLA |
 | 7 | DIMDIMUNGROUP: פרומפט טקסטואלי | הוחלף בפופ-אפ DCL ליד הסמן |
 | 8 | קווים אלכסוניים נספרו כחוצים | הוספת `ddim:seg-is-perp` — רק ניצב בדיוק |
+| 9 | מידה נתפסת לנקודה הרחוקה כש-2 נקודות על אותו ציר | `find-near-pts`: רק הנקודה הקרובה ל-XLINE; `sort-dedup`: בכפילויות — שמור קרובה |
+| 10 | תת-תפריט Ungroup/Delete מיותר | `DIMDIMUNGROUP` משחרר ישירות בלי פופ-אפ |
 
 ---
 

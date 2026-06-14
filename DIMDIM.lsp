@@ -8,6 +8,25 @@
 ;;; ----- קבועים -----
 (setq *DIMDIM-DICT*  "DIMDIM_SETTINGS")
 
+;;; === מזהה מורשה — לשנות לפי מחשב היעד (ריק = ללא נעילה) ===
+(setq *DIMDIM-LICENSE* "")
+
+(defun ddim:check-license ( / id )
+  (if (= *DIMDIM-LICENSE* "")
+    t
+    (progn
+      (setq id (strcase (getenv "COMPUTERNAME")))
+      (if (= id (strcase *DIMDIM-LICENSE*))
+        t
+        (progn
+          (princ "\nהתוסף אינו מורשה על מחשב זה.")
+          nil)))))
+
+(defun c:DIMDIMID ( / id )
+  (setq id (getenv "COMPUTERNAME"))
+  (princ (strcat "\nמזהה מחשב: " id))
+  (princ))
+
 ;;; ============================================================
 ;;;  הגדרות: קריאה / כתיבה
 ;;;  אינדקסים: 0=שכבה  1=מרחק-בסיס(1:50)  2=סגנון  3=קנה-מידה
@@ -124,41 +143,6 @@
     nil)
   found-grp)
 
-;;; ============================================================
-;;;  DCL פופ-אפ קטן ליד הסמן
-;;; ============================================================
-
-(defun ddim:write-popup-dcl ( / f path )
-  (setq path (vl-filename-mktemp "dpop" nil ".dcl"))
-  (setq f (open path "w"))
-  (write-line "dim_popup : dialog {" f)
-  (write-line "  label = \"\";" f)
-  (write-line "  : button { key=\"btn_ungroup\"; label=\"  Ungroup  \"; is_default=true; fixed_width=true; }" f)
-  (write-line "  : button { key=\"btn_delete\";  label=\"  Delete   \"; fixed_width=true; }" f)
-  (write-line "  : button { key=\"btn_cancel\";  label=\"  Cancel   \"; is_cancel=true;  fixed_width=true; }" f)
-  (write-line "}" f)
-  (close f)
-  path)
-
-(defun ddim:show-popup ( cpos / path dclid result x y )
-  (setq path (ddim:write-popup-dcl))
-  (setq dclid (load_dialog path))
-  (setq result 0)
-  (setq x (if (and cpos (car  cpos)) (fix (car  cpos)) -1))
-  (setq y (if (and cpos (cadr cpos)) (fix (cadr cpos)) -1))
-  (if (if (and (> x 0) (> y 0))
-        (new_dialog "dim_popup" dclid "" x y)
-        (new_dialog "dim_popup" dclid))
-    (progn
-      (action_tile "btn_ungroup" "(done_dialog 1)")
-      (action_tile "btn_delete"  "(done_dialog 2)")
-      (action_tile "btn_cancel"  "(done_dialog 0)")
-      (action_tile "cancel"      "(done_dialog 0)")
-      (setq result (start_dialog)))
-    (progn (unload_dialog dclid) (vl-file-delete path) (exit)))
-  (unload_dialog dclid)
-  (vl-file-delete path)
-  result)
 
 ;;; ============================================================
 ;;;  פיצול / איחוד רשימת שכבות
@@ -507,7 +491,7 @@
 ;;;  מחזיר: נקודות ה-endpoint האמיתיות של האובייקטים
 ;;; ============================================================
 
-(defun ddim:find-near-pts ( dir pos layers dist / ss i ent ed p1 p2 pts )
+(defun ddim:find-near-pts ( dir pos layers dist / ss i ent ed p1 p2 _d1 _d2 pts )
   (setq pts '())
   (foreach lay layers
     (setq ss (ssget "X" (list (cons 8 lay))))
@@ -522,10 +506,13 @@
             (setq p2 (cadr seg))
             (if (not (ddim:seg-xline-isect p1 p2 dir pos))
               (progn
-                (if (<= (ddim:dist-to-xline p1 dir pos) dist)
-                  (setq pts (cons (list (car p1) (cadr p1) 0.0) pts)))
-                (if (<= (ddim:dist-to-xline p2 dir pos) dist)
-                  (setq pts (cons (list (car p2) (cadr p2) 0.0) pts))))))
+                (setq _d1 (ddim:dist-to-xline p1 dir pos))
+                (setq _d2 (ddim:dist-to-xline p2 dir pos))
+                (if (<= _d1 _d2)
+                  (if (<= _d1 dist)
+                    (setq pts (cons (list (car p1) (cadr p1) 0.0) pts)))
+                  (if (<= _d2 dist)
+                    (setq pts (cons (list (car p2) (cadr p2) 0.0) pts)))))))
           (setq i (1+ i))))))
   pts)
 
@@ -551,7 +538,7 @@
 ;;;  מיון נקודות + הסרת כפילויות
 ;;; ============================================================
 
-(defun ddim:sort-dedup ( pts dir tol / sorted res last-val val )
+(defun ddim:sort-dedup ( pts dir pos tol / sorted res last-val val cur-best cur-best-d d )
   (setq sorted
     (vl-sort pts
       (if (= dir 'H)
@@ -559,12 +546,22 @@
         '(lambda (a b) (< (cadr a) (cadr b))))))
   (setq res '())
   (setq last-val -1.0e30)
+  (setq cur-best nil)
+  (setq cur-best-d 1.0e30)
   (foreach pt sorted
     (setq val (if (= dir 'H) (car pt) (cadr pt)))
+    (setq d (ddim:dist-to-xline pt dir pos))
     (if (> (- val last-val) tol)
       (progn
-        (setq res (append res (list pt)))
-        (setq last-val val))))
+        (if cur-best (setq res (append res (list cur-best))))
+        (setq last-val val)
+        (setq cur-best pt)
+        (setq cur-best-d d))
+      (if (< d cur-best-d)
+        (progn
+          (setq cur-best pt)
+          (setq cur-best-d d)))))
+  (if cur-best (setq res (append res (list cur-best))))
   res)
 
 ;;; ============================================================
@@ -605,7 +602,7 @@
   (setq near-pts  (ddim:find-near-pts  dir pos near-list actual-dist))
   (setq cross-pts (ddim:filter-in-range cross-pts dir pt1 pt2))
   (setq near-pts  (ddim:filter-in-range near-pts  dir pt1 pt2))
-  (setq all-pts (ddim:sort-dedup (append cross-pts near-pts) dir 0.1))
+  (setq all-pts (ddim:sort-dedup (append cross-pts near-pts) dir pos 0.1))
   (if (< (length all-pts) 2)
     (progn (princ "\nלא נמצאו מספיק נקודות ליצירת מידות.") (exit)))
   (princ (strcat "\nנמצאו " (itoa (length all-pts)) " נקודות."))
@@ -742,7 +739,7 @@
 ;;; ============================================================
 
 (defun c:DIMDIM ( / s choice )
-
+  (if (not (ddim:check-license)) (exit))
   (setq s (ddim:get-settings))
   (if (not s)
     (progn
@@ -770,6 +767,7 @@
 ;;; ============================================================
 
 (defun c:DIMDIMSET ( / s )
+  (if (not (ddim:check-license)) (exit))
   (setq s (ddim:get-settings))
   (if (not s) (setq s (ddim:default-settings)))
   (setq s (ddim:dlg s))
@@ -781,29 +779,16 @@
 ;;;  DIMDIMUNGROUP
 ;;; ============================================================
 
-(defun c:DIMDIMUNGROUP ( / sel ent cpos grp members choice )
+(defun c:DIMDIMUNGROUP ( / sel ent grp )
   (setq sel (entsel "\nבחר קו מידה: "))
   (if (not sel)
     (progn (princ "\nבוטל.") (exit)))
-  (setq ent  (car sel))
-  (setq cpos (getvar "CURSORPOS"))
-  (setq grp  (ddim:find-group ent))
+  (setq ent (car sel))
+  (setq grp (ddim:find-group ent))
   (if (not grp)
     (progn (princ "\nהישות אינה שייכת לגרופ DIMDIM.") (exit)))
-  (setq choice (ddim:show-popup cpos))
-  (cond
-    ((= choice 0) (princ "\nבוטל."))
-    ((= choice 1)
-     (vl-catch-all-apply '(lambda () (vla-delete grp)) nil)
-     (princ "\nהגרופ שוחרר."))
-    ((= choice 2)
-     (setq members '())
-     (vlax-for member grp
-       (setq members (cons (vlax-vla-object->ename member) members)))
-     (vl-catch-all-apply '(lambda () (vla-delete grp)) nil)
-     (foreach e members
-       (vl-catch-all-apply '(lambda () (entdel e)) nil))
-     (princ "\nהגרופ נמחק.")))
+  (vl-catch-all-apply '(lambda () (vla-delete grp)) nil)
+  (princ "\nהגרופ שוחרר.")
   (princ))
 
 ;;; ============================================================
@@ -817,7 +802,7 @@
   (write-line "  label = \"\";" f)
   (write-line "  : button { key=\"btn_qdims\";    label=\"  QDims    \"; is_default=true; fixed_width=true; }" f)
   (write-line "  : button { key=\"btn_settings\"; label=\"  Settings  \"; fixed_width=true; }" f)
-  (write-line "  : button { key=\"btn_ungroup\";  label=\"  Ungroup/Delete  \"; fixed_width=true; }" f)
+  (write-line "  : button { key=\"btn_ungroup\";  label=\"  Ungroup  \"; fixed_width=true; }" f)
   (write-line "  : button { key=\"btn_cancel\";   label=\"  Cancel   \"; is_cancel=true;  fixed_width=true; }" f)
   (write-line "}" f)
   (close f)
@@ -870,6 +855,7 @@
 ;;; ============================================================
 
 (defun c:QDIMS ( / s choice )
+  (if (not (ddim:check-license)) (exit))
   (setq s (ddim:get-settings))
   (if (not s)
     (progn
